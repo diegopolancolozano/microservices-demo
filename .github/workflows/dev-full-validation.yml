@@ -1,0 +1,103 @@
+name: Dev Full Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-full-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [vote, result, worker]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        if: matrix.service == 'vote'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+
+      - name: Setup Node
+        if: matrix.service == 'result'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: result/package-lock.json
+
+      - name: Setup Go
+        if: matrix.service == 'worker'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci/*.sh
+
+      - name: Validate vote
+        if: matrix.service == 'vote'
+        run: ./scripts/ci/check_vote.sh
+
+      - name: Validate result
+        if: matrix.service == 'result'
+        run: ./scripts/ci/check_result.sh
+
+      - name: Validate worker
+        if: matrix.service == 'worker'
+        run: ./scripts/ci/check_worker.sh
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    needs: quality-gates
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [vote, result, worker]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t local/${{ matrix.service }}:${{ github.sha }} ${{ matrix.service }}
+
+      - name: Start web container
+        if: matrix.service != 'worker'
+        run: |
+          if [ "${{ matrix.service }}" = "vote" ]; then PORT=8080; else PORT=80; fi
+          docker run -d --name ${{ matrix.service }}-full -p ${PORT}:${PORT} local/${{ matrix.service }}:${{ github.sha }}
+          sleep 8
+          docker ps --filter "name=${{ matrix.service }}-full" --filter "status=running" | grep ${{ matrix.service }}-full
+
+      - name: Start worker container
+        if: matrix.service == 'worker'
+        run: |
+          docker run -d --name worker-full local/worker:${{ github.sha }}
+          sleep 8
+          docker ps --filter "name=worker-full" --filter "status=running" | grep worker-full
+
+      - name: Print container logs
+        if: always() && matrix.service != 'worker'
+        run: docker logs ${{ matrix.service }}-full || true
+
+      - name: Print worker logs
+        if: always() && matrix.service == 'worker'
+        run: docker logs worker-full || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f ${{ matrix.service }}-full 2>/dev/null || true
+          docker rm -f worker-full 2>/dev/null || true

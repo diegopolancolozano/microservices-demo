@@ -1,21 +1,23 @@
-name: PR Validation
+name: Feature Fast Feedback
 
 on:
-  pull_request:
+  push:
     branches:
-      - dev
+      - 'feature/**'
+      - 'hotfix/**'
     paths:
       - '.github/workflows/**'
       - 'scripts/ci/**'
       - 'vote/**'
       - 'result/**'
       - 'worker/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-validation-${{ github.event.pull_request.number }}
+  group: feature-fast-feedback-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,9 +38,8 @@ jobs:
         id: changed
         run: ./scripts/ci/changed_services.sh
 
-  validate:
+  quality-gates:
     needs: detect-changes
-    if: startsWith(github.head_ref, 'feature/') || startsWith(github.head_ref, 'hotfix/')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

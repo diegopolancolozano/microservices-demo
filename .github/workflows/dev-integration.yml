@@ -4,10 +4,20 @@ on:
   push:
     branches:
       - dev
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/ci/**'
+      - 'vote/**'
+      - 'result/**'
+      - 'worker/**'
 
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: dev-integration-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality-gates:
@@ -63,6 +73,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       TAG: dev-${{ github.sha }}
+      EXTRA_TAGS: dev-latest
 
     steps:
       - name: Checkout
@@ -84,7 +95,22 @@ jobs:
 
       - name: Push images
         env:
-          IMAGE_VOTE: ${{ steps.build.outputs.image_vote }}
-          IMAGE_RESULT: ${{ steps.build.outputs.image_result }}
-          IMAGE_WORKER: ${{ steps.build.outputs.image_worker }}
+          IMAGE_VOTE_TAGS: ${{ steps.build.outputs.image_vote_tags }}
+          IMAGE_RESULT_TAGS: ${{ steps.build.outputs.image_result_tags }}
+          IMAGE_WORKER_TAGS: ${{ steps.build.outputs.image_worker_tags }}
         run: ./scripts/ci/push_images.sh
+
+      - name: Generate dev metadata
+        run: |
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "vote=${{ steps.build.outputs.image_vote_tags }}"
+            echo "result=${{ steps.build.outputs.image_result_tags }}"
+            echo "worker=${{ steps.build.outputs.image_worker_tags }}"
+          } > dev-metadata.txt
+
+      - name: Upload dev metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-metadata
+          path: dev-metadata.txt
