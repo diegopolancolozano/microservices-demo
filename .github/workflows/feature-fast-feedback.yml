@@ -3,8 +3,8 @@ name: Feature Fast Feedback
 on:
   push:
     branches:
-      - 'feature/**'
-      - 'hotfix/**'
+      - 'feat/*'
+      - 'hotfix/*'
     paths:
       - '.github/workflows/**'
       - 'scripts/ci/**'

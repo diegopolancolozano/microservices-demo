@@ -38,7 +38,7 @@ jobs:
 
   validate:
     needs: detect-changes
-    if: startsWith(github.head_ref, 'feature/') || startsWith(github.head_ref, 'hotfix/')
+    if: startsWith(github.head_ref, 'feat/') || startsWith(github.head_ref, 'hotfix/')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

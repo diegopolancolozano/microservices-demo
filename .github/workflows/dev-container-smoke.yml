@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - dev
-      - 'feature/**'
-      - 'hotfix/**'
+      - 'feat/*'
+      - 'hotfix/*'
     paths:
       - 'vote/**'
       - 'result/**'
