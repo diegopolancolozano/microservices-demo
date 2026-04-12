@@ -1,0 +1,99 @@
+name: Infra Terraform CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/infra-terraform-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: infra-terraform-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-plan:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_TERRAFORM_SA_EMAIL: ${{ secrets.GCP_TERRAFORM_SA_EMAIL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive terraform
+
+      - name: Terraform init (backend disabled for CI)
+        run: terraform -chdir=terraform/live/prod init -backend=false
+
+      - name: Terraform validate
+        run: terraform -chdir=terraform/live/prod validate
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: TFLint
+        run: |
+          tflint --chdir=terraform/live/prod --init
+          tflint --chdir=terraform/live/prod
+
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform/live/prod
+
+      - name: Check plan prerequisites
+        id: prereqs
+        run: |
+          if [ -n "${GCP_PROJECT_ID}" ] && [ -n "${GCP_REGION}" ] && [ -n "${GCP_WIF_PROVIDER}" ] && [ -n "${GCP_TERRAFORM_SA_EMAIL}" ]; then
+            echo "can_plan=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_plan=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auth to Google Cloud (OIDC)
+        if: steps.prereqs.outputs.can_plan == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_TERRAFORM_SA_EMAIL }}
+
+      - name: Terraform plan
+        if: steps.prereqs.outputs.can_plan == 'true'
+        run: |
+          terraform -chdir=terraform/live/prod plan \
+            -input=false \
+            -lock=false \
+            -refresh=true \
+            -var="project_id=${GCP_PROJECT_ID}" \
+            -var="region=${GCP_REGION}" \
+            -out=tfplan
+
+      - name: Upload tfplan artifact
+        if: steps.prereqs.outputs.can_plan == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-prod-tfplan
+          path: terraform/live/prod/tfplan
+
+      - name: Plan skipped notice
+        if: steps.prereqs.outputs.can_plan != 'true'
+        run: |
+          echo "Terraform plan skipped: configure repo vars/secrets first."
+          echo "Required vars: GCP_PROJECT_ID, GCP_REGION"
+          echo "Required secrets: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_TERRAFORM_SA_EMAIL"

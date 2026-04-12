@@ -1,0 +1,42 @@
+# Copy this file to terraform.tfvars and replace placeholders.
+
+project_id = "my-prod-project"
+region     = "us-central1"
+
+enable_iam          = true
+enable_cloud_run    = false
+enable_api_gateway  = true
+enable_pubsub_retry = true
+enable_monitoring   = true
+
+runtime_sa_name = "microservices-runtime"
+cicd_sa_name    = "terraform-deployer"
+
+api_id        = "microservices-api"
+api_config_id = "prod-v1"
+gateway_id    = "microservices-gateway"
+
+pubsub_topic_name        = "votes"
+pubsub_subscription_name = "votes-worker-sub"
+pubsub_dlq_topic_name    = "votes-dlq"
+max_delivery_attempts    = 10
+min_retry_backoff        = "10s"
+max_retry_backoff        = "120s"
+ack_deadline_seconds     = 30
+
+# Optional push mode. Leave empty for pull subscriptions.
+retry_push_endpoint = ""
+
+# Add channel ids once created in GCP.
+notification_channels = []
+
+# Example Cloud Run map. Keep disabled unless you provide valid images and service accounts.
+cloud_run_services = {
+  result = {
+    image                 = "us-docker.pkg.dev/my-prod-project/apps/result:latest"
+    container_port        = 80
+    allow_unauthenticated = true
+    service_account_email = "microservices-runtime@my-prod-project.iam.gserviceaccount.com"
+    env                   = {}
+  }
+}

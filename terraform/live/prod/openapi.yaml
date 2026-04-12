@@ -1,0 +1,15 @@
+openapi: 3.0.0
+info:
+  title: microservices-demo-api
+  version: 1.0.0
+
+paths:
+  /health:
+    get:
+      operationId: health
+      x-google-backend:
+        # Replace this with the Cloud Run URL you want to expose.
+        address: https://REPLACE_ME_BACKEND_URL
+      responses:
+        '200':
+          description: OK
