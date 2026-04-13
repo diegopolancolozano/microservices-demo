@@ -1,0 +1,313 @@
+@startuml
+' Unified C4 architecture for report: Context + Container + Component + Delivery Pipeline
+' Render with PlantUML. Uses C4-PlantUML standard library.
+
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_TOP_DOWN()
+
+' =========================================================
+' PAGE 1 - C4 LEVEL 1 (SYSTEM CONTEXT)
+' =========================================================
+
+title C4 Level 1 - System Context (Microservices Demo)
+
+Person(user_ctx, "End User", "Casts votes and checks real-time results")
+Person(devops_ctx, "DevOps Team", "Builds, operates, and releases app + infra")
+
+System(system_ctx, "Microservices Demo", "Voting platform with async processing and cloud-native operations")
+
+System_Ext(gh_ctx, "GitHub", "Source control, pull requests, and pipelines")
+System_Ext(gcp_ctx, "Google Cloud", "Target runtime and managed platform services")
+
+Rel(user_ctx, system_ctx, "Uses vote and result flows", "HTTPS")
+Rel(devops_ctx, gh_ctx, "Manages branches, PRs, and approvals", "Web")
+Rel(gh_ctx, gcp_ctx, "Deploys app and infrastructure", "CI/CD via OIDC")
+Rel(system_ctx, gcp_ctx, "Runs production workloads", "Managed services")
+
+UpdateRelStyle(user_ctx, system_ctx, $textColor="black", $lineColor="black")
+UpdateRelStyle(gh_ctx, gcp_ctx, $textColor="black", $lineColor="black")
+
+note right of system_ctx
+Main cloud patterns represented in this architecture:
+1) API Gateway as a single public entry point
+2) Retry with Dead Letter Queue for resilience
+3) Rate limiting for request protection
+4) Fast-fail timeout behavior for overloaded backends
+end note
+
+SHOW_LEGEND()
+
+newpage
+
+' =========================================================
+' PAGE 2 - C4 LEVEL 2 (CONTAINERS DEPLOYED ON GCP)
+' =========================================================
+
+title C4 Level 2 - Containers Deployed on GCP (prod)
+
+Person(user_ctr, "End User", "Consumes voting web flows")
+Person(devops_ctr, "DevOps Team", "Operates release lifecycle")
+
+System_Ext(gh_ctr, "GitHub Actions", "Application and Terraform pipelines")
+System_Ext(tf_cli_ctr, "Terraform", "Infrastructure as Code engine")
+
+skinparam package<<svcBox>> {
+  BorderStyle dashed
+  BorderColor #2F6FA3
+  BackgroundColor #EAF4FF
+}
+
+skinparam package<<dataBox>> {
+  BorderStyle dashed
+  BorderColor #8A6D1A
+  BackgroundColor #FFF8DB
+}
+
+Enterprise_Boundary(gcp_proj_ctr, "Google Cloud Project (prod)") {
+  System_Boundary(ms_ctr, "Microservices Demo") {
+    Container(apigw_ctr, "API Gateway", "Google API Gateway", "Single ingress, route control, rate limits, timeout policies")
+
+    package "Cloud Run Microservices" <<svcBox>> {
+      Container(vote_ctr, "Vote Service", "Cloud Run (Java Spring Boot)", "Receives user vote and emits events")
+      Container(result_ctr, "Result Service", "Cloud Run (Node.js)", "Serves current vote aggregation")
+      Container(worker_ctr, "Worker Service", "Cloud Run (Go)", "Consumes vote events and writes durable state")
+    }
+
+    package "Data and Messaging" <<dataBox>> {
+      ContainerQueue(kafka_ctr, "Kafka", "Bitnami Kafka on GKE", "Vote event transport for async processing")
+      ContainerDb(pg_ctr, "PostgreSQL", "Cloud SQL for PostgreSQL", "Stores canonical vote state")
+      ContainerQueue(pubsub_ctr, "Pub/Sub Retry + DLQ", "Google Pub/Sub", "Bounded retries and dead letter handling")
+    }
+
+    Container(mon_ctr, "Monitoring", "Cloud Monitoring", "Alerts for API errors and queue health")
+    Container(iam_ctr, "IAM", "Service Accounts + Roles", "Least-privilege identity controls")
+  }
+}
+
+UpdateElementStyle(apigw_ctr, $bgColor="#FFD8A8", $fontColor="#1A1A1A", $borderColor="#B56A00")
+UpdateElementStyle(vote_ctr, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(result_ctr, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(worker_ctr, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(kafka_ctr, $bgColor="#FFE9A8", $fontColor="#1A1A1A", $borderColor="#8A6D1A")
+UpdateElementStyle(pg_ctr, $bgColor="#D9F3D0", $fontColor="#1A1A1A", $borderColor="#4D8B31")
+UpdateElementStyle(pubsub_ctr, $bgColor="#FFDDBD", $fontColor="#1A1A1A", $borderColor="#B56A00")
+UpdateElementStyle(mon_ctr, $bgColor="#E7ECEF", $fontColor="#1A1A1A", $borderColor="#5F6B73")
+UpdateElementStyle(iam_ctr, $bgColor="#F1F3F5", $fontColor="#1A1A1A", $borderColor="#6C757D")
+
+Rel(user_ctr, apigw_ctr, "Submits votes and reads results", "HTTPS")
+Rel(apigw_ctr, vote_ctr, "POST /vote", "HTTP")
+Rel(apigw_ctr, result_ctr, "GET /result", "HTTP")
+
+Rel(vote_ctr, kafka_ctr, "Publishes vote event", "Kafka")
+Rel(worker_ctr, kafka_ctr, "Consumes vote event", "Kafka")
+Rel(worker_ctr, pg_ctr, "Upserts vote records", "SQL")
+Rel(result_ctr, pg_ctr, "Reads vote totals", "SQL")
+Rel(result_ctr, worker_ctr, "Reads data produced by worker through PostgreSQL", "SQL state")
+
+Rel(worker_ctr, pubsub_ctr, "Uses retry channel for transient failures", "Pub/Sub")
+Rel(pubsub_ctr, worker_ctr, "Redelivers messages", "Push/Pull")
+
+Rel(apigw_ctr, mon_ctr, "Exports API metrics (2xx/4xx/5xx)", "Metrics")
+Rel(pubsub_ctr, mon_ctr, "Exports backlog and DLQ metrics", "Metrics")
+
+Rel(devops_ctr, gh_ctr, "Approves and monitors pipelines", "Web")
+Rel(gh_ctr, tf_cli_ctr, "Runs plan/apply stages", "Workflow")
+Rel(tf_cli_ctr, apigw_ctr, "Provisions gateway + OpenAPI config", "IaC")
+Rel(tf_cli_ctr, pubsub_ctr, "Provisions topic/subscription/retry/DLQ", "IaC")
+Rel(tf_cli_ctr, mon_ctr, "Provisions alert policies", "IaC")
+Rel(tf_cli_ctr, iam_ctr, "Provisions identities and roles", "IaC")
+
+note bottom of apigw_ctr #FFF1DC
+API Gateway pattern:
+- Centralized ingress
+- Route governance
+- Request quotas (rate limiting)
+- Fast-fail timeout behavior
+end note
+
+note bottom of kafka_ctr #FFF7D6
+Event-Driven pattern with Kafka:
+- Vote service publishes events
+- Worker consumes events asynchronously
+- Decouples write path from processing path
+end note
+
+note bottom of pubsub_ctr #FFE9D8
+Retry + DLQ pattern:
+- Bounded delivery attempts
+- Backoff window
+- Dead letter sink after max retries
+end note
+
+SHOW_LEGEND()
+
+newpage
+
+' =========================================================
+' PAGE 3 - C4 LEVEL 3 (COMPONENTS: VOTE + WORKER + RESULT)
+' =========================================================
+
+title C4 Level 3 - Components (Vote, Worker, Result)
+
+Person(user_cmp, "End User", "Interacts with vote web page")
+Container(apigw_cmp, "API Gateway", "GCP API Gateway", "Ingress and routing")
+ContainerQueue(kafka_cmp, "Kafka", "Bitnami Kafka", "Votes topic")
+ContainerDb(pg_cmp, "PostgreSQL", "Cloud SQL", "Persistent vote state")
+
+Container_Boundary(vote_cmp_boundary, "Vote Service (Spring Boot)") {
+  Component(vote_controller_cmp, "VoteController", "Spring MVC", "Handles GET/POST and voter cookie")
+  Component(vote_model_cmp, "Vote Model", "Domain object", "Carries selected option and labels")
+  Component(vote_publisher_cmp, "KafkaTemplate Publisher", "Spring Kafka", "Publishes vote events")
+  Component(vote_cfg_cmp, "KafkaProducerConfig", "Spring @Configuration", "Creates producer factory and template")
+  Component(vote_view_cmp, "Thymeleaf View", "Template", "Renders vote page")
+}
+
+Container_Boundary(worker_cmp_boundary, "Worker Service (Go)") {
+  Component(worker_main_cmp, "Worker Main Loop", "Go", "Bootstraps consumer and processing loop")
+  Component(worker_consumer_cmp, "Kafka Consumer", "Sarama", "Consumes vote events from topic")
+  Component(worker_writer_cmp, "Vote Writer", "database/sql", "Upserts vote records")
+}
+
+Container_Boundary(result_cmp_boundary, "Result Service (Node.js)") {
+  Component(result_http_cmp, "HTTP + Socket Server", "Express + Socket.IO", "Serves UI and pushes scores")
+  Component(result_query_cmp, "Votes Query", "node-postgres", "Aggregates SELECT vote, COUNT(id)")
+  Component(result_poll_cmp, "Polling Loop", "setTimeout", "Refreshes scores every second")
+}
+
+UpdateElementStyle(vote_controller_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(vote_publisher_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(worker_consumer_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(worker_writer_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(result_http_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(result_query_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
+UpdateElementStyle(apigw_cmp, $bgColor="#FFD8A8", $fontColor="#1A1A1A", $borderColor="#B56A00")
+UpdateElementStyle(kafka_cmp, $bgColor="#FFE9A8", $fontColor="#1A1A1A", $borderColor="#8A6D1A")
+UpdateElementStyle(pg_cmp, $bgColor="#D9F3D0", $fontColor="#1A1A1A", $borderColor="#4D8B31")
+
+Rel(user_cmp, apigw_cmp, "Accesses vote interface", "HTTPS")
+Rel(apigw_cmp, vote_controller_cmp, "Routes POST /vote (rate limited)", "HTTP")
+Rel(apigw_cmp, result_http_cmp, "Routes GET /result (timeout 2s)", "HTTP")
+
+Rel(vote_controller_cmp, vote_model_cmp, "Builds and validates vote payload")
+Rel(vote_controller_cmp, vote_view_cmp, "Returns model to view")
+Rel(vote_controller_cmp, vote_publisher_cmp, "Sends vote event asynchronously")
+Rel(vote_cfg_cmp, vote_publisher_cmp, "Provides producer configuration")
+Rel(vote_publisher_cmp, kafka_cmp, "Publishes to votes topic", "Kafka")
+
+Rel(worker_main_cmp, worker_consumer_cmp, "Starts consumption")
+Rel(worker_consumer_cmp, kafka_cmp, "Consumes vote events", "Kafka")
+Rel(worker_consumer_cmp, worker_writer_cmp, "Passes parsed vote")
+Rel(worker_writer_cmp, pg_cmp, "Upserts into votes table", "SQL")
+
+Rel(result_http_cmp, result_poll_cmp, "Triggers refresh")
+Rel(result_poll_cmp, result_query_cmp, "Executes aggregation query")
+Rel(result_query_cmp, pg_cmp, "Reads vote totals", "SQL")
+
+note right of apigw_cmp #FFF1DC
+Patterns active in current deployment:
+- API Gateway as single ingress
+- Rate limiting on POST /vote
+- Timeout-based circuit breaker on GET /result
+end note
+
+SHOW_LEGEND()
+
+newpage
+
+' =========================================================
+' PAGE 4 - DELIVERY AND OPERATIONS PIPELINE VIEW
+' =========================================================
+
+title Delivery Pipeline and Branching Strategy (Unified View)
+
+skinparam rectangle<<svcBox>> {
+  BorderStyle dashed
+  BorderColor #2F6FA3
+  BackgroundColor #EAF4FF
+}
+
+skinparam rectangle<<dataBox>> {
+  BorderStyle dashed
+  BorderColor #8A6D1A
+  BackgroundColor #FFF8DB
+}
+
+rectangle "Development Branches" as DEV_BRANCHES #EAF4FF {
+  rectangle "feat/*\nfeature implementation" as FEAT #D8ECFF
+  rectangle "dev\nintegration" as DEV #CFE8FF
+  rectangle "main\nproduction" as MAIN #BFDFFF
+  rectangle "hotfix/*\nurgent fixes" as HOTFIX #E4F3FF
+}
+
+rectangle "Operations Branches" as OPS_BRANCHES #FFF3D6 {
+  rectangle "infra/*\nIaC changes" as INFRA #FFE7B3
+  rectangle "release/*\nrelease hardening" as RELEASE #FFDC99
+}
+
+rectangle "CI Gates" as CI_GATES #E9F8E4 {
+  rectangle "App Build + Unit Tests" as APP_CI #D9F3D0
+  rectangle "Terraform fmt/validate/plan" as INFRA_CI #D9F3D0
+  rectangle "Security checks" as SEC_CI #CDEEBF
+}
+
+rectangle "CD Gates" as CD_GATES #FFE9D8 {
+  rectangle "Manual prod approval" as APPROVAL #FFDDBD
+  rectangle "Deploy App Artifacts" as DEPLOY_APP #FFD3A3
+  rectangle "Terraform Apply (prod)" as APPLY_INFRA #FFD3A3
+  rectangle "Post-deploy smoke checks" as SMOKE #FFC78A
+}
+
+rectangle "Production Platform" as PROD #F7F8FA {
+  rectangle "API Gateway (rate limit + timeout)" as PROD_APP #FFD8A8
+  rectangle "Cloud Run Microservices" <<svcBox>> as PROD_RUN {
+    rectangle "Vote" as PROD_VOTE #CFE8FF
+    rectangle "Worker" as PROD_WORKER #CFE8FF
+    rectangle "Result" as PROD_RESULT #CFE8FF
+  }
+  rectangle "Data and Messaging" <<dataBox>> as PROD_DATA {
+    rectangle "Kafka on GKE" as PROD_KAFKA #FFE9A8
+    rectangle "Cloud SQL PostgreSQL" as PROD_DB #D9F3D0
+    rectangle "Pub/Sub Retry + DLQ" as PROD_RETRY #FFDDBD
+  }
+  rectangle "Monitoring + Alerts" as PROD_MON #E7ECEF
+}
+
+FEAT --> DEV : PR
+HOTFIX --> MAIN : PR
+DEV --> MAIN : release PR
+
+INFRA --> RELEASE : PR
+RELEASE --> MAIN : approved PR
+
+DEV --> APP_CI
+INFRA --> INFRA_CI
+APP_CI --> SEC_CI
+INFRA_CI --> SEC_CI
+SEC_CI --> APPROVAL
+
+APPROVAL --> DEPLOY_APP
+APPROVAL --> APPLY_INFRA
+DEPLOY_APP --> SMOKE
+APPLY_INFRA --> SMOKE
+
+SMOKE --> PROD_APP
+SMOKE --> PROD_RUN
+SMOKE --> PROD_DATA
+SMOKE --> PROD_MON
+
+PROD_APP --> PROD_VOTE
+PROD_APP --> PROD_RESULT
+PROD_VOTE --> PROD_KAFKA
+PROD_WORKER --> PROD_KAFKA
+PROD_WORKER --> PROD_DB
+PROD_RESULT --> PROD_DB
+
+note bottom
+This view links branching decisions to quality gates and controlled production release.
+It aligns agile development cadence with operational reliability controls.
+end note
+
+@enduml
