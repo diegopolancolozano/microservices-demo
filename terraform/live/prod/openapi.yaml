@@ -1,12 +1,9 @@
-openapi: 3.0.0
+swagger: '2.0'
 info:
   title: microservices-demo-api
   description: API Gateway with Rate Limiting and Circuit Breaker
   version: 1.0.0
 
-# ============================================
-# RATE LIMITING - 5 requests per minute
-# ============================================
 x-google-management:
   metrics:
     - name: "vote-requests"
@@ -21,7 +18,6 @@ x-google-management:
         standard: 5
 
 paths:
-  # Health check
   /health:
     get:
       operationId: health
@@ -30,21 +26,16 @@ paths:
       responses:
         '200':
           description: OK
-
-  # Vote endpoint with RATE LIMITING
   /vote:
     post:
       operationId: vote
       x-google-backend:
         address: https://REPLACE_ME_BACKEND_URL
-      x-google-quota: "vote-quota"
       responses:
         '200':
           description: OK
         '429':
           description: Rate limit exceeded
-
-  # Result endpoint with CIRCUIT BREAKER (2 second timeout)
   /result:
     get:
       operationId: result

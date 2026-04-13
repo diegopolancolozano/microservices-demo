@@ -175,3 +175,15 @@ variable "notification_channels" {
   type        = list(string)
   default     = []
 }
+
+variable "rate_limit_per_minute" {
+  description = "Rate Limiting: maximum requests per minute for /vote endpoint"
+  type        = number
+  default     = 5
+}
+
+variable "circuit_breaker_timeout_seconds" {
+  description = "Circuit Breaker: timeout in seconds for /result endpoint"
+  type        = number
+  default     = 2
+}
