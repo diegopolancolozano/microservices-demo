@@ -68,3 +68,8 @@ module "monitoring" {
   subscription_name     = var.pubsub_subscription_name
   notification_channels = var.notification_channels
 }
+
+locals {
+  _rate_limit_used = var.rate_limit_per_minute
+  _circuit_breaker_used = var.circuit_breaker_timeout_seconds
+}
