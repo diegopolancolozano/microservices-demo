@@ -36,7 +36,7 @@ jobs:
         run: terraform fmt -check -recursive terraform
 
       - name: Terraform init (backend disabled for CI)
-        run: terraform -chdir=terraform/live/prod init -backend=false
+        run: terraform -chdir=terraform/live/prod init -backend=false -reconfigure
 
       - name: Terraform validate
         run: terraform -chdir=terraform/live/prod validate
@@ -57,7 +57,7 @@ jobs:
       - name: Check plan prerequisites
         id: prereqs
         run: |
-          if [ -n "${GCP_PROJECT_ID}" ] && [ -n "${GCP_REGION}" ]; then
+          if [ -n "${GCP_PROJECT_ID}" ] && [ -n "${GCP_REGION}" ] && [ -n "${{ secrets.GCP_SA_KEY }}" ]; then
             echo "can_plan=true" >> "$GITHUB_OUTPUT"
           else
             echo "can_plan=false" >> "$GITHUB_OUTPUT"
