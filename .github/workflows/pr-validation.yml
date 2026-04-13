@@ -1,0 +1,86 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/ci/**'
+      - 'vote/**'
+      - 'result/**'
+      - 'worker/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services_matrix: ${{ steps.changed.outputs.services_matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci/*.sh
+
+      - name: Detect changed services
+        id: changed
+        run: ./scripts/ci/changed_services.sh
+
+  validate:
+    needs: detect-changes
+    if: startsWith(github.head_ref, 'feature/') || startsWith(github.head_ref, 'hotfix/')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services_matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        if: matrix.service == 'vote'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+
+      - name: Setup Node
+        if: matrix.service == 'result'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: result/package-lock.json
+
+      - name: Setup Go
+        if: matrix.service == 'worker'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci/*.sh
+
+      - name: Validate vote
+        if: matrix.service == 'vote'
+        run: ./scripts/ci/check_vote.sh
+
+      - name: Validate result
+        if: matrix.service == 'result'
+        run: ./scripts/ci/check_result.sh
+
+      - name: Validate worker
+        if: matrix.service == 'worker'
+        run: ./scripts/ci/check_worker.sh

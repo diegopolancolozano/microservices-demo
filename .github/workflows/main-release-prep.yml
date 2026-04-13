@@ -1,0 +1,116 @@
+name: Main Release Prep
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/ci/**'
+      - 'vote/**'
+      - 'result/**'
+      - 'worker/**'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: main-release-prep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [vote, result, worker]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        if: matrix.service == 'vote'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+
+      - name: Setup Node
+        if: matrix.service == 'result'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: result/package-lock.json
+
+      - name: Setup Go
+        if: matrix.service == 'worker'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci/*.sh
+
+      - name: Validate vote
+        if: matrix.service == 'vote'
+        run: ./scripts/ci/check_vote.sh
+
+      - name: Validate result
+        if: matrix.service == 'result'
+        run: ./scripts/ci/check_result.sh
+
+      - name: Validate worker
+        if: matrix.service == 'worker'
+        run: ./scripts/ci/check_worker.sh
+
+  build-push-and-metadata:
+    runs-on: ubuntu-latest
+    needs: quality-gates
+    env:
+      REGISTRY: ghcr.io
+      TAG: release-${{ github.sha }}
+      EXTRA_TAGS: main-latest,latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci/*.sh
+
+      - name: Build images
+        id: build
+        run: ./scripts/ci/build_images.sh
+
+      - name: Push images
+        env:
+          IMAGE_VOTE_TAGS: ${{ steps.build.outputs.image_vote_tags }}
+          IMAGE_RESULT_TAGS: ${{ steps.build.outputs.image_result_tags }}
+          IMAGE_WORKER_TAGS: ${{ steps.build.outputs.image_worker_tags }}
+        run: ./scripts/ci/push_images.sh
+
+      - name: Generate release metadata
+        run: |
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "vote=${{ steps.build.outputs.image_vote_tags }}"
+            echo "result=${{ steps.build.outputs.image_result_tags }}"
+            echo "worker=${{ steps.build.outputs.image_worker_tags }}"
+          } > release-metadata.txt
+
+      - name: Upload release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: release-metadata.txt

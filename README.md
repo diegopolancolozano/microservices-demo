@@ -44,6 +44,12 @@ $ make start
 
 The voting application only accepts one vote per client. It does not register votes if a vote has already been submitted from a client.
 
+## Infrastructure Plan (planning only)
+
+There is a documented Terraform + GCP plan for a production-only rollout with API Gateway and Retry patterns:
+
+- [docs/terraform-gcp-prod-plan.md](docs/terraform-gcp-prod-plan.md)
+
 This isn't an example of a properly architected perfectly designed distributed app... it's just a simple
 example of the various types of pieces and languages you might see (queues, persistent data, etc), and how to
 deal with them in Okteto.

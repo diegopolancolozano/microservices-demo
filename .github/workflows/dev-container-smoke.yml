@@ -1,0 +1,92 @@
+name: Dev Container Smoke
+
+on:
+  push:
+    branches:
+      - dev
+      - 'feature/**'
+      - 'hotfix/**'
+    paths:
+      - 'vote/**'
+      - 'result/**'
+      - 'worker/**'
+      - '.github/workflows/dev-container-smoke.yml'
+      - 'scripts/ci/**'
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - 'vote/**'
+      - 'result/**'
+      - 'worker/**'
+      - '.github/workflows/dev-container-smoke.yml'
+      - 'scripts/ci/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-container-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services_matrix: ${{ steps.changed.outputs.services_matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci/*.sh
+
+      - name: Detect changed services
+        id: changed
+        run: ./scripts/ci/changed_services.sh
+
+  docker-build-smoke:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services_matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t local/${{ matrix.service }}:${{ github.sha }} ${{ matrix.service }}
+
+      - name: Start container
+        if: matrix.service != 'worker'
+        run: |
+          if [ "${{ matrix.service }}" = "vote" ]; then PORT=8080; else PORT=80; fi
+          docker run -d --name ${{ matrix.service }}-smoke -p ${PORT}:${PORT} local/${{ matrix.service }}:${{ github.sha }}
+          sleep 8
+          docker ps --filter "name=${{ matrix.service }}-smoke" --filter "status=running" | grep ${{ matrix.service }}-smoke
+
+      - name: Start worker container
+        if: matrix.service == 'worker'
+        run: |
+          docker run -d --name worker-smoke local/worker:${{ github.sha }}
+          sleep 8
+          docker ps --filter "name=worker-smoke" --filter "status=running" | grep worker-smoke
+
+      - name: Print container logs
+        if: always() && matrix.service != 'worker'
+        run: docker logs ${{ matrix.service }}-smoke || true
+
+      - name: Print worker logs
+        if: always() && matrix.service == 'worker'
+        run: docker logs worker-smoke || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f ${{ matrix.service }}-smoke 2>/dev/null || true
+          docker rm -f worker-smoke 2>/dev/null || true
