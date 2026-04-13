@@ -70,6 +70,6 @@ module "monitoring" {
 }
 
 locals {
-  _rate_limit_used = var.rate_limit_per_minute
+  _rate_limit_used      = var.rate_limit_per_minute
   _circuit_breaker_used = var.circuit_breaker_timeout_seconds
 }
