@@ -22,25 +22,28 @@ paths:
     get:
       operationId: health
       x-google-backend:
-        address: https://REPLACE_ME_BACKEND_URL
+        address: https://vote-6cfpor7wra-uc.a.run.app/health
       responses:
         '200':
           description: OK
+
   /vote:
     post:
       operationId: vote
       x-google-backend:
-        address: https://REPLACE_ME_BACKEND_URL
+        address: https://vote-6cfpor7wra-uc.a.run.app
+      x-google-quota: "vote-quota"
       responses:
         '200':
           description: OK
         '429':
           description: Rate limit exceeded
+
   /result:
     get:
       operationId: result
       x-google-backend:
-        address: https://REPLACE_ME_BACKEND_URL
+        address: https://result-6cfpor7wra-uc.a.run.app
         deadline: 2.0
       responses:
         '200':
