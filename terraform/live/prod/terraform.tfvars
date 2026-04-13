@@ -14,9 +14,6 @@ api_id        = "microservices-api"
 api_config_id = "prod-v1"
 gateway_id    = "microservices-gateway"
 
-rate_limit_per_minute           = 5
-circuit_breaker_timeout_seconds = 2
-
 pubsub_topic_name        = "votes"
 pubsub_subscription_name = "votes-worker-sub"
 pubsub_dlq_topic_name    = "votes-dlq"
