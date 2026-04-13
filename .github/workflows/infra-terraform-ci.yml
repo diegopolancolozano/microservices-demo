@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: infra-terraform-ci-${{ github.event.pull_request.number || github.ref }}
@@ -23,8 +22,6 @@ jobs:
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_REGION: ${{ vars.GCP_REGION }}
-      GCP_WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      GCP_TERRAFORM_SA_EMAIL: ${{ secrets.GCP_TERRAFORM_SA_EMAIL }}
 
     steps:
       - name: Checkout
@@ -60,18 +57,17 @@ jobs:
       - name: Check plan prerequisites
         id: prereqs
         run: |
-          if [ -n "${GCP_PROJECT_ID}" ] && [ -n "${GCP_REGION}" ] && [ -n "${GCP_WIF_PROVIDER}" ] && [ -n "${GCP_TERRAFORM_SA_EMAIL}" ]; then
+          if [ -n "${GCP_PROJECT_ID}" ] && [ -n "${GCP_REGION}" ]; then
             echo "can_plan=true" >> "$GITHUB_OUTPUT"
           else
             echo "can_plan=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Auth to Google Cloud (OIDC)
+      - name: Auth to Google Cloud
         if: steps.prereqs.outputs.can_plan == 'true'
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_TERRAFORM_SA_EMAIL }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Terraform plan
         if: steps.prereqs.outputs.can_plan == 'true'
@@ -96,4 +92,4 @@ jobs:
         run: |
           echo "Terraform plan skipped: configure repo vars/secrets first."
           echo "Required vars: GCP_PROJECT_ID, GCP_REGION"
-          echo "Required secrets: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_TERRAFORM_SA_EMAIL"
+          echo "Required secret: GCP_SA_KEY"
