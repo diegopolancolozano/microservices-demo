@@ -31,11 +31,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate required configuration
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         run: |
-          test -n "${GCP_PROJECT_ID}" || (echo "Missing repo variable GCP_PROJECT_ID" && exit 1)
-          test -n "${GCP_REGION}" || (echo "Missing repo variable GCP_REGION" && exit 1)
-          test -n "${TF_STATE_BUCKET}" || (echo "Missing repo variable TF_STATE_BUCKET" && exit 1)
-          test -n "${{ secrets.GCP_SA_KEY }}" || (echo "Missing secret GCP_SA_KEY" && exit 1)
+          test -n "${GCP_PROJECT_ID:-}" || (echo "Missing repo variable GCP_PROJECT_ID" && exit 1)
+          test -n "${GCP_REGION:-}" || (echo "Missing repo variable GCP_REGION" && exit 1)
+          test -n "${TF_STATE_BUCKET:-}" || (echo "Missing repo variable TF_STATE_BUCKET" && exit 1)
+          test -n "${GCP_SA_KEY:-}" || (echo "Missing secret GCP_SA_KEY (repo or environment 'prod')" && exit 1)
 
       - name: Auth to Google Cloud
         uses: google-github-actions/auth@v2
@@ -51,6 +53,7 @@ jobs:
         run: |
           PREFIX="${TF_STATE_PREFIX:-terraform/prod}"
           terraform -chdir=terraform/live/prod init \
+            -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="prefix=${PREFIX}"
 
