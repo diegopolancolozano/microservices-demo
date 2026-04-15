@@ -33,7 +33,7 @@ cloud_run_services = {
     service_account_email = "microservices-runtime@microservices-taller-2026.iam.gserviceaccount.com"
     env = {
       # Forzar redeploy (cambiar este valor en cada despliegue)
-      UPDATE_TIMESTAMP = "2027-04-15-14"
+      UPDATE_TIMESTAMP = "2027-04-15-12"
 
       # Kafka para vote
       KAFKA_BROKER     = "pkc-619z3.us-east1.gcp.confluent.cloud:9092"
@@ -41,6 +41,7 @@ cloud_run_services = {
       KAFKA_API_SECRET = "cfltETmfvCjbrYIx495radD6UwYr+tGlih08sRa+3SOTd9ks8gM2fhZA642QPvAA"
       KAFKA_TOPIC      = "topic_0"
     }
+    demo-date = "2026-04-15"
   }
 
   result = {
