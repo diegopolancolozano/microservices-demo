@@ -34,7 +34,7 @@ jobs:
 
       - name: Detect changed services
         id: changed
-        run: ./scripts/ci/changed_services.sh
+        run: ./scripts/ci/changed_services.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
 
   validate:
     needs: detect-changes
