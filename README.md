@@ -46,7 +46,7 @@ The voting application only accepts one vote per client. It does not register vo
 
 ## Infrastructure Plan (planning only)
 
-There is a documented Terraform + GCP plan for a production-only rollout with API Gateway and Retry patterns:
+There is a documented Terraform + GCP plan for a production-only rollout focused on Cloud Run services and messaging patterns. In the current state, API Gateway is not implemented and Pub/Sub retry is disabled:
 
 - [docs/terraform-gcp-prod-plan.md](docs/terraform-gcp-prod-plan.md)
 

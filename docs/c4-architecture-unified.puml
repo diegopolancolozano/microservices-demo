@@ -31,11 +31,11 @@ UpdateRelStyle(user_ctx, system_ctx, $textColor="black", $lineColor="black")
 UpdateRelStyle(gh_ctx, gcp_ctx, $textColor="black", $lineColor="black")
 
 note right of system_ctx
-Main cloud patterns represented in this architecture:
-1) API Gateway as a single public entry point
-2) Retry with Dead Letter Queue for resilience
-3) Rate limiting for request protection
-4) Fast-fail timeout behavior for overloaded backends
+Cloud patterns status in current repo state:
+1) Implemented: Event-driven processing with Kafka
+2) Planned but disabled: Retry with Dead Letter Queue (Pub/Sub)
+3) Planned: Rate limiting for endpoint protection
+4) Planned: Timeout behavior for overloaded backends
 end note
 
 SHOW_LEGEND()
@@ -68,8 +68,6 @@ skinparam package<<dataBox>> {
 
 Enterprise_Boundary(gcp_proj_ctr, "Google Cloud Project (prod)") {
   System_Boundary(ms_ctr, "Microservices Demo") {
-    Container(apigw_ctr, "API Gateway", "Google API Gateway", "Single ingress, route control, rate limits, timeout policies")
-
     package "Cloud Run Microservices" <<svcBox>> {
       Container(vote_ctr, "Vote Service", "Cloud Run (Java Spring Boot)", "Receives user vote and emits events")
       Container(result_ctr, "Result Service", "Cloud Run (Node.js)", "Serves current vote aggregation")
@@ -79,7 +77,7 @@ Enterprise_Boundary(gcp_proj_ctr, "Google Cloud Project (prod)") {
     package "Data and Messaging" <<dataBox>> {
       ContainerQueue(kafka_ctr, "Kafka", "Bitnami Kafka on GKE", "Vote event transport for async processing")
       ContainerDb(pg_ctr, "PostgreSQL", "Cloud SQL for PostgreSQL", "Stores canonical vote state")
-      ContainerQueue(pubsub_ctr, "Pub/Sub Retry + DLQ", "Google Pub/Sub", "Bounded retries and dead letter handling")
+      ContainerQueue(pubsub_ctr, "Pub/Sub Retry + DLQ (planned/disabled)", "Google Pub/Sub", "Bounded retries and dead letter handling")
     }
 
     Container(mon_ctr, "Monitoring", "Cloud Monitoring", "Alerts for API errors and queue health")
@@ -87,7 +85,6 @@ Enterprise_Boundary(gcp_proj_ctr, "Google Cloud Project (prod)") {
   }
 }
 
-UpdateElementStyle(apigw_ctr, $bgColor="#FFD8A8", $fontColor="#1A1A1A", $borderColor="#B56A00")
 UpdateElementStyle(vote_ctr, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
 UpdateElementStyle(result_ctr, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
 UpdateElementStyle(worker_ctr, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
@@ -97,9 +94,8 @@ UpdateElementStyle(pubsub_ctr, $bgColor="#FFDDBD", $fontColor="#1A1A1A", $border
 UpdateElementStyle(mon_ctr, $bgColor="#E7ECEF", $fontColor="#1A1A1A", $borderColor="#5F6B73")
 UpdateElementStyle(iam_ctr, $bgColor="#F1F3F5", $fontColor="#1A1A1A", $borderColor="#6C757D")
 
-Rel(user_ctr, apigw_ctr, "Submits votes and reads results", "HTTPS")
-Rel(apigw_ctr, vote_ctr, "POST /vote", "HTTP")
-Rel(apigw_ctr, result_ctr, "GET /result", "HTTP")
+Rel(user_ctr, vote_ctr, "Submits votes", "HTTPS")
+Rel(user_ctr, result_ctr, "Reads results", "HTTPS")
 
 Rel(vote_ctr, kafka_ctr, "Publishes vote event", "Kafka")
 Rel(worker_ctr, kafka_ctr, "Consumes vote event", "Kafka")
@@ -110,29 +106,25 @@ Rel(result_ctr, worker_ctr, "Reads data produced by worker through PostgreSQL", 
 Rel(worker_ctr, pubsub_ctr, "Uses retry channel for transient failures", "Pub/Sub")
 Rel(pubsub_ctr, worker_ctr, "Redelivers messages", "Push/Pull")
 
-Rel(apigw_ctr, mon_ctr, "Exports API metrics (2xx/4xx/5xx)", "Metrics")
+Rel(vote_ctr, mon_ctr, "Exports service metrics", "Metrics")
+Rel(result_ctr, mon_ctr, "Exports service metrics", "Metrics")
 Rel(pubsub_ctr, mon_ctr, "Exports backlog and DLQ metrics", "Metrics")
 
 Rel(devops_ctr, gh_ctr, "Approves and monitors pipelines", "Web")
 Rel(gh_ctr, tf_cli_ctr, "Runs plan/apply stages", "Workflow")
-Rel(tf_cli_ctr, apigw_ctr, "Provisions gateway + OpenAPI config", "IaC")
+Rel(tf_cli_ctr, vote_ctr, "Provisions Cloud Run service", "IaC")
+Rel(tf_cli_ctr, result_ctr, "Provisions Cloud Run service", "IaC")
+Rel(tf_cli_ctr, worker_ctr, "Provisions Cloud Run service", "IaC")
 Rel(tf_cli_ctr, pubsub_ctr, "Provisions topic/subscription/retry/DLQ", "IaC")
 Rel(tf_cli_ctr, mon_ctr, "Provisions alert policies", "IaC")
 Rel(tf_cli_ctr, iam_ctr, "Provisions identities and roles", "IaC")
-
-note bottom of apigw_ctr #FFF1DC
-API Gateway pattern:
-- Centralized ingress
-- Route governance
-- Request quotas (rate limiting)
-- Fast-fail timeout behavior
-end note
 
 note bottom of kafka_ctr #FFF7D6
 Event-Driven pattern with Kafka:
 - Vote service publishes events
 - Worker consumes events asynchronously
 - Decouples write path from processing path
+- Status: implemented
 end note
 
 note bottom of pubsub_ctr #FFE9D8
@@ -140,6 +132,7 @@ Retry + DLQ pattern:
 - Bounded delivery attempts
 - Backoff window
 - Dead letter sink after max retries
+- Status: planned/disabled in current deployment
 end note
 
 SHOW_LEGEND()
@@ -148,12 +141,12 @@ newpage
 
 ' =========================================================
 ' PAGE 3 - C4 LEVEL 3 (COMPONENTS: VOTE + WORKER + RESULT)
+' Explicit pattern label included
 ' =========================================================
 
-title C4 Level 3 - Components (Vote, Worker, Result)
+title C4 Level 3 - Components (Vote, Worker, Result) - Pattern: Event-Driven Architecture
 
 Person(user_cmp, "End User", "Interacts with vote web page")
-Container(apigw_cmp, "API Gateway", "GCP API Gateway", "Ingress and routing")
 ContainerQueue(kafka_cmp, "Kafka", "Bitnami Kafka", "Votes topic")
 ContainerDb(pg_cmp, "PostgreSQL", "Cloud SQL", "Persistent vote state")
 
@@ -183,13 +176,11 @@ UpdateElementStyle(worker_consumer_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A"
 UpdateElementStyle(worker_writer_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
 UpdateElementStyle(result_http_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
 UpdateElementStyle(result_query_cmp, $bgColor="#CFE8FF", $fontColor="#1A1A1A", $borderColor="#2F6FA3")
-UpdateElementStyle(apigw_cmp, $bgColor="#FFD8A8", $fontColor="#1A1A1A", $borderColor="#B56A00")
 UpdateElementStyle(kafka_cmp, $bgColor="#FFE9A8", $fontColor="#1A1A1A", $borderColor="#8A6D1A")
 UpdateElementStyle(pg_cmp, $bgColor="#D9F3D0", $fontColor="#1A1A1A", $borderColor="#4D8B31")
 
-Rel(user_cmp, apigw_cmp, "Accesses vote interface", "HTTPS")
-Rel(apigw_cmp, vote_controller_cmp, "Routes POST /vote (rate limited)", "HTTP")
-Rel(apigw_cmp, result_http_cmp, "Routes GET /result (timeout 2s)", "HTTP")
+Rel(user_cmp, vote_controller_cmp, "POST /vote [PATTERN: RATE LIMITING]", "HTTPS")
+Rel(user_cmp, result_http_cmp, "GET /result [PATTERN: CIRCUIT BREAKER]", "HTTPS")
 
 Rel(vote_controller_cmp, vote_model_cmp, "Builds and validates vote payload")
 Rel(vote_controller_cmp, vote_view_cmp, "Returns model to view")
@@ -206,11 +197,30 @@ Rel(result_http_cmp, result_poll_cmp, "Triggers refresh")
 Rel(result_poll_cmp, result_query_cmp, "Executes aggregation query")
 Rel(result_query_cmp, pg_cmp, "Reads vote totals", "SQL")
 
-note right of apigw_cmp #FFF1DC
-Patterns active in current deployment:
-- API Gateway as single ingress
-- Rate limiting on POST /vote
-- Timeout-based circuit breaker on GET /result
+note left of vote_controller_cmp #FFF1DC
+PATTERN: RATE LIMITING
+- Applied on: POST /vote
+- Purpose: protect service under burst traffic
+- Status: planned in current repo state
+end note
+
+note left of result_http_cmp #FDEBEC
+PATTERN: CIRCUIT BREAKER (TIMEOUT)
+- Applied on: GET /result
+- Timeout target: 2s
+- Status: planned in current repo state
+end note
+
+note right of kafka_cmp #FFF7D6
+PATTERN (IMPLEMENTED): EVENT-DRIVEN ARCHITECTURE
+- Producer: Vote Service (Kafka publisher)
+- Broker: Kafka topic "votes"
+- Consumer: Worker Service (Kafka consumer)
+end note
+
+note right of result_query_cmp #E8F5E9
+READ MODEL FLOW (Derived state):
+Result Service reads persisted totals from PostgreSQL.
 end note
 
 SHOW_LEGEND()
@@ -261,7 +271,6 @@ rectangle "CD Gates" as CD_GATES #FFE9D8 {
 }
 
 rectangle "Production Platform" as PROD #F7F8FA {
-  rectangle "API Gateway (rate limit + timeout)" as PROD_APP #FFD8A8
   rectangle "Cloud Run Microservices" <<svcBox>> as PROD_RUN {
     rectangle "Vote" as PROD_VOTE #CFE8FF
     rectangle "Worker" as PROD_WORKER #CFE8FF
@@ -293,13 +302,10 @@ APPROVAL --> APPLY_INFRA
 DEPLOY_APP --> SMOKE
 APPLY_INFRA --> SMOKE
 
-SMOKE --> PROD_APP
 SMOKE --> PROD_RUN
 SMOKE --> PROD_DATA
 SMOKE --> PROD_MON
 
-PROD_APP --> PROD_VOTE
-PROD_APP --> PROD_RESULT
 PROD_VOTE --> PROD_KAFKA
 PROD_WORKER --> PROD_KAFKA
 PROD_WORKER --> PROD_DB

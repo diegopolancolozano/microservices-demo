@@ -4,6 +4,11 @@ Status: draft
 Owner: infraestructura
 Date: 2026-04-11
 
+Current implementation note (2026-04-15):
+- This file is a target-state plan.
+- API Gateway is not currently implemented in the active deployment.
+- Pub/Sub Retry + DLQ is currently disabled in `terraform/live/prod/terraform.tfvars`.
+
 ## 1) Scope
 
 This plan documents the target implementation for infrastructure pipelines in GCP using Terraform.
