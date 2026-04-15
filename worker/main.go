@@ -2,18 +2,21 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"database/sql"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
+	"crypto/tls"
+
+	"database/sql"
+	"fmt"
+
+	_ "github.com/lib/pq"
+
+	kingpin "github.com/alecthomas/kingpin/v2"
 
 	"github.com/IBM/sarama"
-	kingpin "github.com/alecthomas/kingpin/v2"
-	_ "github.com/lib/pq"
 )
 
 var (
@@ -30,14 +33,17 @@ const (
 	dbname   = "votes"
 )
 
+// healthCheckHandler responde a las solicitudes de health check de Cloud Run
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
 
+// startHTTPServer inicia un servidor HTTP en el puerto especificado
 func startHTTPServer(port string) {
 	http.HandleFunc("/health", healthCheckHandler)
 	http.HandleFunc("/", healthCheckHandler)
+
 	log.Printf("HTTP server listening on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Printf("HTTP server error: %v", err)
@@ -45,14 +51,19 @@ func startHTTPServer(port string) {
 }
 
 func main() {
+	// Parsear flags primero, antes de leer variables de entorno
 	kingpin.Parse()
 
+	// Obtener el puerto de la variable de entorno PORT (Cloud Run la inyecta)
 	httpPort := os.Getenv("PORT")
 	if httpPort == "" {
 		httpPort = "8080"
 	}
+
+	// Iniciar el servidor HTTP en una goroutine
 	go startHTTPServer(httpPort)
 
+	// Obtener configuración de Kafka desde variables de entorno
 	kafkaBroker := os.Getenv("KAFKA_BROKER")
 	if kafkaBroker == "" {
 		log.Fatal("KAFKA_BROKER environment variable is required")
@@ -70,18 +81,20 @@ func main() {
 
 	pingDatabase(db)
 
-	// ELIMINADO: DROP TABLE - ya no se borran los votos en cada inicio
-	// Solo crear la tabla si no existe
+	dropTableStmt := `DROP TABLE IF EXISTS votes`
+	if _, err := db.Exec(dropTableStmt); err != nil {
+		log.Printf("Error dropping table: %v", err)
+	}
+
 	createTableStmt := `CREATE TABLE IF NOT EXISTS votes (id VARCHAR(255) NOT NULL UNIQUE, vote VARCHAR(255) NOT NULL)`
 	if _, err := db.Exec(createTableStmt); err != nil {
 		log.Printf("Error creating table: %v", err)
-	} else {
-		log.Println("Table 'votes' ready")
 	}
 
 	master := getKafkaMaster()
 	defer master.Close()
 
+	// Obtener todas las particiones del topic
 	partitions, err := master.Partitions(*topic)
 	if err != nil {
 		log.Printf("Error getting partitions for topic '%s': %v", *topic, err)
@@ -97,8 +110,9 @@ func main() {
 	defer cancel()
 
 	messages := make(chan *sarama.ConsumerMessage, 256)
-	errorsChan := make(chan *sarama.ConsumerError, 256)
+	errors := make(chan *sarama.ConsumerError, 256)
 
+	// Lanzar un goroutine consumer por cada partición
 	for _, partition := range partitions {
 		pc, err := master.ConsumePartition(*topic, partition, sarama.OffsetOldest)
 		if err != nil {
@@ -116,7 +130,7 @@ func main() {
 				case msg := <-pc.Messages():
 					messages <- msg
 				case err := <-pc.Errors():
-					errorsChan <- err
+					errors <- err
 				}
 			}
 		}(pc)
@@ -128,18 +142,17 @@ func main() {
 			case <-ctx.Done():
 				log.Println("Context cancelled, exiting consumer loop")
 				return
-			case err := <-errorsChan:
-				log.Printf("Consumer error: %v", err)
+			case err := <-errors:
+				fmt.Printf("Consumer error: %v\n", err)
 			case msg := <-messages:
 				*messageCountStart++
 				log.Printf("Received message: user %s vote %s (offset=%d, partition=%d)", string(msg.Key), string(msg.Value), msg.Offset, msg.Partition)
 
-				// Usar msg.Key (UUID del usuario) como ID, no el contador
 				insertDynStmt := `insert into "votes"("id", "vote") values($1, $2) on conflict(id) do update set vote = $2`
-				if _, err := db.Exec(insertDynStmt, string(msg.Key), string(msg.Value)); err != nil {
+				if _, err := db.Exec(insertDynStmt, *messageCountStart, string(msg.Value)); err != nil {
 					log.Printf("Error inserting vote: %v", err)
 				} else {
-					log.Printf("Vote inserted successfully: id=%s, vote=%s", string(msg.Key), string(msg.Value))
+					log.Printf("Vote inserted successfully: id=%d, vote=%s", *messageCountStart, string(msg.Value))
 				}
 			case <-signals:
 				log.Println("Interrupt signal detected, shutting down")
@@ -194,47 +207,115 @@ func openDatabase() *sql.DB {
 }
 
 func pingDatabase(db *sql.DB) {
-    log.Println("Pinging PostgreSQL...")
-    for {
-        err := db.Ping()
-        if err == nil {
-            log.Println("Postgresql ping successful!")
-            return
-        }
-        log.Printf("Postgresql ping failed: %v, retrying in 2s", err)
-        time.Sleep(2 * time.Second)
-    }
+	fmt.Println("Waiting for postgresql...")
+	for {
+		if err := db.Ping(); err == nil {
+			fmt.Println("Postgresql connected!")
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+type CBState int
+
+const (
+	CBClosed   CBState = iota
+	CBOpen                    
+	CBHalfOpen                
+)
+
+type CircuitBreaker struct {
+	state        CBState
+	failures     int
+	maxFailures  int
+	openUntil    time.Time
+	cooldown     time.Duration
+}
+
+func NewCircuitBreaker(maxFailures int, cooldown time.Duration) *CircuitBreaker {
+	return &CircuitBreaker{
+		state:       CBClosed,
+		maxFailures: maxFailures,
+		cooldown:    cooldown,
+	}
+}
+
+func (cb *CircuitBreaker) Allow() bool {
+	switch cb.state {
+	case CBClosed:
+		return true
+	case CBOpen:
+		if time.Now().After(cb.openUntil) {
+			cb.state = CBHalfOpen
+			log.Println("Circuit Breaker: transitioning to HALF-OPEN, allowing probe attempt")
+			return true
+		}
+		log.Printf("Circuit Breaker: OPEN, waiting until %s", cb.openUntil.Format(time.RFC3339))
+		return false
+	case CBHalfOpen:
+		return true
+	}
+	return false
+}
+
+func (cb *CircuitBreaker) RecordSuccess() {
+	cb.failures = 0
+	cb.state = CBClosed
+	log.Println("Circuit Breaker: CLOSED (success recorded)")
+}
+
+func (cb *CircuitBreaker) RecordFailure() {
+	cb.failures++
+	if cb.state == CBHalfOpen || cb.failures >= cb.maxFailures {
+		cb.state = CBOpen
+		cb.openUntil = time.Now().Add(cb.cooldown)
+		log.Printf("Circuit Breaker: OPEN after %d failures, cooling down for %s", cb.failures, cb.cooldown)
+	}
 }
 
 func getKafkaMaster() sarama.Consumer {
-	config := sarama.NewConfig()
-	config.Consumer.Return.Errors = true
-	config.Consumer.Offsets.Initial = sarama.OffsetOldest
-	config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
-	config.Consumer.Group.Session.Timeout = 10 * time.Second
+    config := sarama.NewConfig()
+    config.Consumer.Return.Errors = true
+    config.Consumer.Offsets.Initial = sarama.OffsetOldest
+    config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
+    config.Consumer.Group.Session.Timeout = 10 * time.Second
 
-	if apiKey := os.Getenv("KAFKA_API_KEY"); apiKey != "" {
-		config.Net.SASL.Enable = true
-		config.Net.SASL.User = apiKey
-		config.Net.SASL.Password = os.Getenv("KAFKA_API_SECRET")
-		config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
-		config.Net.TLS.Enable = true
-		config.Net.TLS.Config = &tls.Config{
-			InsecureSkipVerify: false,
-		}
-		log.Println("SASL authentication configured for Confluent Cloud")
-	}
+    // Soporte para SASL (Confluent Cloud)
+    if apiKey := os.Getenv("KAFKA_API_KEY"); apiKey != "" {
+        config.Net.SASL.Enable = true
+        config.Net.SASL.User = apiKey
+        config.Net.SASL.Password = os.Getenv("KAFKA_API_SECRET")
+        config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
+        config.Net.TLS.Enable = true
+        config.Net.TLS.Config = &tls.Config{
+            InsecureSkipVerify: false,
+        }
+        log.Println("SASL authentication configured for Confluent Cloud")
+    }
 
-	brokers := *brokerList
-	log.Printf("Connecting to Kafka brokers: %v", brokers)
+    brokers := *brokerList
+    log.Printf("Connecting to Kafka brokers: %v", brokers)
 
-	for {
-		master, err := sarama.NewConsumer(brokers, config)
-		if err == nil {
-			log.Println("Kafka connected successfully!")
-			return master
-		}
-		log.Printf("Failed to connect to Kafka: %v, retrying in 2s", err)
-		time.Sleep(2 * time.Second)
-	}
+    // Circuit Breaker: abre tras 5 fallos consecutivos, espera 30s antes de reintentar
+    cb := NewCircuitBreaker(5, 30*time.Second)
+
+    for {
+        if !cb.Allow() {
+            // Circuito abierto: esperar sin bombardear Kafka
+            time.Sleep(5 * time.Second)
+            continue
+        }
+
+        master, err := sarama.NewConsumer(brokers, config)
+        if err == nil {
+            cb.RecordSuccess()
+            log.Println("Kafka connected successfully!")
+            return master
+        }
+
+        cb.RecordFailure()
+        log.Printf("Failed to connect to Kafka: %v, retrying in 2s", err)
+        time.Sleep(2 * time.Second)
+    }
 }
