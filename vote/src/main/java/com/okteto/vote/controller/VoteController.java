@@ -1,5 +1,12 @@
 package com.okteto.vote.controller;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,17 +21,20 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.thymeleaf.util.StringUtils;
 
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.util.concurrent.CompletableFuture;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.util.UUID;
 
 @Controller
 public class VoteController {
     private static final String OPTION_A_ENV_VAR = "OPTION_A";
     private static final String OPTION_B_ENV_VAR = "OPTION_B";
-    private static final String KAFKA_TOPIC = "votes";
+    private static final String KAFKA_TOPIC = "topic_0";
+
+    // Rate Limiting: 5 requests por minuto por IP
+    private final ConcurrentHashMap<String, AtomicInteger> requestCounts = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> resetTimes = new ConcurrentHashMap<>();
+    private static final int MAX_REQUESTS = 5;
+    private static final long TIME_WINDOW_MS = 60000; // 1 minuto
 
     private final Logger logger = LoggerFactory.getLogger(VoteController.class);
 
@@ -56,7 +66,42 @@ public class VoteController {
     String postForm(@CookieValue(name = "voter_id", defaultValue = "") String voterId,
                     @ModelAttribute Vote voteInput,
                     Model model,
-                    HttpServletResponse response) {
+                    HttpServletResponse response,
+                    HttpServletRequest request) {
+
+        // ============================================
+        // RATE LIMITING - 5 requests por minuto
+        // ============================================
+        String clientIp = request.getRemoteAddr();
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isEmpty()) {
+            clientIp = xff.split(",")[0];
+        }
+
+        long now = System.currentTimeMillis();
+        Long resetTime = resetTimes.get(clientIp);
+
+        if (resetTime == null || now > resetTime) {
+            // Nuevo minuto, reiniciar contador
+            resetTimes.put(clientIp, now + TIME_WINDOW_MS);
+            requestCounts.put(clientIp, new AtomicInteger(1));
+        } else {
+            int count = requestCounts.get(clientIp).incrementAndGet();
+            if (count > MAX_REQUESTS) {
+                response.setStatus(429);
+                response.setContentType("application/json");
+                try {
+                    response.getWriter().write("{\"error\": \"Rate limit exceeded. Max " + MAX_REQUESTS + " requests per minute.\"}");
+                } catch (Exception e) {
+                    logger.error("Error writing rate limit response", e);
+                }
+                return null;
+            }
+        }
+        // ============================================
+        // FIN RATE LIMITING
+        // ============================================
+
         String voter = voterId;
         String vote = voteInput.getVote();
         Vote v = new Vote();

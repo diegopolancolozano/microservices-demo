@@ -19,3 +19,10 @@
 /vote/vote.iml
 
 /browser_screenshots
+
+# Terraform local artifacts
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log

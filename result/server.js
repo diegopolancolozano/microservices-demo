@@ -20,8 +20,19 @@ io.sockets.on('connection', function (socket) {
   });
 });
 
+// Configuración de PostgreSQL desde variables de entorno
+var dbHost = process.env.DATABASE_HOST || 'postgresql';
+var dbPort = process.env.DATABASE_PORT || 5432;
+var dbUser = process.env.DATABASE_USER || 'okteto';
+var dbPassword = process.env.DATABASE_PASSWORD || 'okteto';
+var dbName = process.env.DATABASE_NAME || 'votes';
+
+var connectionString = `postgres://${dbUser}:${dbPassword}@${dbHost}:${dbPort}/${dbName}`;
+
+console.log(`Connecting to PostgreSQL at ${dbHost}:${dbPort}`);
+
 var pool = new pg.Pool({
-  connectionString: 'postgres://okteto:okteto@postgresql/votes',
+  connectionString: connectionString,
 });
 
 async.retry(
