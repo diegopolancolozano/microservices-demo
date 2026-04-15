@@ -53,6 +53,7 @@ jobs:
         run: |
           PREFIX="${TF_STATE_PREFIX:-terraform/prod}"
           terraform -chdir=terraform/live/prod init \
+            -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="prefix=${PREFIX}"
 
