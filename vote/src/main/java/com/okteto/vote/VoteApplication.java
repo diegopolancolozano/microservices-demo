@@ -10,6 +10,7 @@ public class VoteApplication {
 		SpringApplication.run(VoteApplication.class, args);
 		//Este es un cambio
 		//otro cambio
+		//otro más
 	}
 
 }

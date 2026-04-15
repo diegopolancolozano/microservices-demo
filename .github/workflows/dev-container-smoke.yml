@@ -78,7 +78,7 @@ jobs:
       - name: Smoke worker image (command startup)
         if: matrix.service == 'worker'
         run: |
-          docker run --rm local/worker:${{ github.sha }} --help >/tmp/worker-help.txt
+          docker run --rm local/worker:${{ github.sha }} --help >/tmp/worker-help.txt 2>&1
           test -s /tmp/worker-help.txt
           grep -E "brokerList|topic|messageCountStart" /tmp/worker-help.txt
 
