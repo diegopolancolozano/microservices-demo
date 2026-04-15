@@ -56,8 +56,10 @@ jobs:
 
       - name: Check plan prerequisites
         id: prereqs
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         run: |
-          if [ -n "${GCP_PROJECT_ID}" ] && [ -n "${GCP_REGION}" ] && [ -n "${{ secrets.GCP_SA_KEY }}" ]; then
+          if [ -n "${GCP_PROJECT_ID:-}" ] && [ -n "${GCP_REGION:-}" ] && [ -n "${GCP_SA_KEY:-}" ]; then
             echo "can_plan=true" >> "$GITHUB_OUTPUT"
           else
             echo "can_plan=false" >> "$GITHUB_OUTPUT"
