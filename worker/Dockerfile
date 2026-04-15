@@ -19,6 +19,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go 
 
 FROM scratch
 
+# Copiar certificados CA del sistema para que Go pueda verificar TLS con Confluent Cloud
+COPY --from=dev /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
 COPY --from=dev /usr/local/bin/worker /usr/local/bin/worker
 
 ENTRYPOINT ["/usr/local/bin/worker"]
