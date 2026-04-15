@@ -41,6 +41,7 @@ cloud_run_services = {
       KAFKA_API_SECRET = "cfltETmfvCjbrYIx495radD6UwYr+tGlih08sRa+3SOTd9ks8gM2fhZA642QPvAA"
       KAFKA_TOPIC      = "topic_0"
     }
+    demo-date = "2026-04-15"
   }
 
   result = {
