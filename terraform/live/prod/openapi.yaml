@@ -4,6 +4,12 @@ info:
   description: API Gateway with Rate Limiting and Circuit Breaker
   version: 1.0.0
 
+securityDefinitions:
+  api_key:
+    type: "apiKey"
+    name: "key"
+    in: "query"
+
 x-google-management:
   metrics:
     - name: "vote-requests"
@@ -23,30 +29,38 @@ paths:
       operationId: health
       x-google-backend:
         address: https://vote-6cfpor7wra-uc.a.run.app/health
+        protocol: h2
       responses:
         '200':
           description: OK
+      security: []
 
   /vote:
     post:
       operationId: vote
       x-google-backend:
         address: https://vote-6cfpor7wra-uc.a.run.app
-      x-google-quota: "vote-quota"
+        protocol: h2
+      x-google-quota:
+        metricCosts:
+          vote-requests: 1
       responses:
         '200':
           description: OK
         '429':
           description: Rate limit exceeded
+      security: []
 
   /result:
     get:
       operationId: result
       x-google-backend:
         address: https://result-6cfpor7wra-uc.a.run.app
+        protocol: h2
         deadline: 2.0
       responses:
         '200':
           description: OK
         '504':
           description: Gateway Timeout
+      security: []
