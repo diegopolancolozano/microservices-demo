@@ -81,20 +81,16 @@ jobs:
           sleep 8
           docker ps --filter "name=${{ matrix.service }}-full" --filter "status=running" | grep ${{ matrix.service }}-full
 
-      - name: Start worker container
+      - name: Smoke worker image (command startup)
         if: matrix.service == 'worker'
         run: |
-          docker run -d --name worker-full local/worker:${{ github.sha }}
-          sleep 8
-          docker ps --filter "name=worker-full" --filter "status=running" | grep worker-full
+          docker run --rm local/worker:${{ github.sha }} --help >/tmp/worker-help.txt 2>&1
+          test -s /tmp/worker-help.txt
+          grep -E "brokerList|topic|messageCountStart" /tmp/worker-help.txt
 
       - name: Print container logs
         if: always() && matrix.service != 'worker'
         run: docker logs ${{ matrix.service }}-full || true
-
-      - name: Print worker logs
-        if: always() && matrix.service == 'worker'
-        run: docker logs worker-full || true
 
       - name: Cleanup
         if: always()

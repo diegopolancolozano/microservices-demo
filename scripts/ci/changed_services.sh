@@ -7,6 +7,22 @@ ALL_SERVICES='["vote","result","worker"]'
 BASE_REF="${1:-}"
 HEAD_REF="${2:-}"
 
+is_zero_sha() {
+  [[ "$1" =~ ^0+$ ]]
+}
+
+is_valid_commit() {
+  git rev-parse --verify -q "${1}^{commit}" >/dev/null 2>&1
+}
+
+if [[ -n "${BASE_REF}" ]] && { is_zero_sha "${BASE_REF}" || ! is_valid_commit "${BASE_REF}"; }; then
+  BASE_REF=""
+fi
+
+if [[ -n "${HEAD_REF}" ]] && { is_zero_sha "${HEAD_REF}" || ! is_valid_commit "${HEAD_REF}"; }; then
+  HEAD_REF=""
+fi
+
 if [[ -z "${BASE_REF}" || -z "${HEAD_REF}" ]]; then
   if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" && -n "${GITHUB_BASE_REF:-}" ]]; then
     git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
@@ -25,6 +41,14 @@ if [[ "${BASE_REF}" == "${HEAD_REF}" ]]; then
   SERVICES_JSON="${ALL_SERVICES}"
 else
   CHANGED_FILES="$(git diff --name-only "${BASE_REF}" "${HEAD_REF}" || true)"
+
+  echo "Detecting changes between ${BASE_REF} and ${HEAD_REF}"
+  if [[ -n "${CHANGED_FILES}" ]]; then
+    echo "Changed files:"
+    echo "${CHANGED_FILES}"
+  else
+    echo "Changed files: <none>"
+  fi
 
   SERVICES=()
   if grep -qE '^vote/' <<<"${CHANGED_FILES}"; then SERVICES+=("vote"); fi

@@ -36,7 +36,7 @@ jobs:
 
       - name: Detect changed services
         id: changed
-        run: ./scripts/ci/changed_services.sh
+        run: ./scripts/ci/changed_services.sh "${{ github.event.before }}" "${{ github.sha }}"
 
   quality-gates:
     needs: detect-changes
